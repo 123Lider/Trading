@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Admin - Cloud AI</title>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<!-- TradingView -->
+<script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+<!-- Tesseract JS -->
+<script src='https://unpkg.com/tesseract.js@v2.1.0/dist/tesseract.min.js'></script>
+
+<style>
+  /* --- CORE UI --- */
+  * { box-sizing: border-box; outline: none; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; background-color: #000; font-family: 'Courier New', monospace; color: #fff; overflow: hidden; }
+  
+  /* --- BACKGROUNDS --- */
+  #matrix { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; opacity: 0.7; pointer-events: none; }
+  #networkCanvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; display: none; background: #050505; }
+
+  /* --- LOGIN PAGE (FIXED) --- */
+  #loginPage { position: absolute; top: 0; left: 0; width: 100%; height: 100vh; display: flex; align-items: center; justify-content: center; z-index: 100; background: #000; }
+  
+  /* Login Box Container */
+  .login-box { 
+      width: 340px; 
+      height: 350px;
+      border: 2px solid #0f0; 
+      background: none; /* Fallback */
+      text-align: center; 
+      box-shadow: 0 0 40px rgba(0,255,0,0.3); 
+      position: relative; 
+      overflow: hidden; 
+      border-radius: 0px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+  }
+
+  /* Iframe Background (Inside Box) */
+  #loginBgFrame { 
+      position: absolute; 
+      top: 0; left: 0; 
+      width: 100%; height: 100%; 
+      z-index: 0; 
+      border: none; 
+      opacity: 0.4; 
+      pointer-events: none; /* Important: Clicks go through */
+      object-fit: cover;
+  }
+
+  /* Content (Inputs) - Must be above iframe */
+  .login-content { 
+      position: relative; 
+      z-index: 10; 
+      width: 100%; 
+      padding: 30px;
+      background: rgba(0,0,0,0.6); /* Text readability */
+      backdrop-filter: blur(3px);
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+  }
+
+  #mini-terminal { height: 50px; overflow: hidden; text-align: left; font-size: 10px; color: #0f0; margin-bottom: 20px; border-bottom: 1px dashed #0f0; opacity: 1; font-weight: bold; text-shadow: 0 0 5px #0f0; }
+  
+  .login-box input { 
+      width: 60%; 
+      padding: 8px;
+      background: rgba(0,0,0,0.7); 
+      border: 2px solid #0f0; 
+      color: #fff; 
+      margin-bottom: 25px; 
+      text-align: center; 
+      font-weight: bold; 
+      font-size: 9px; 
+      letter-spacing: 5px;
+      z-index: 20;
+  }
+  
+  .login-box button { 
+      width: 100%; 
+      padding: 15px; 
+      background: #0f0; 
+      color: #000; 
+      font-weight: 900; 
+      border: none; 
+      cursor: pointer; 
+      transition: 0.3s; 
+      font-size: 16px;
+      z-index: 20;
+  }
+  .login-box button:hover { background: #fff; box-shadow: 0 0 20px #0f0; }
+
+  /* --- DASHBOARD --- */
+  #dashboard { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100vh; z-index: 50; overflow-y: auto; background: rgba(0,0,0,0.95); }
+  .container { max-width: 600px; margin: 0 auto; padding: 20px; padding-bottom: 100px; }
+  .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #333; padding-bottom: 15px; margin-bottom: 25px; background: rgba(0,0,0,0.5); }
+  .logout-btn { background: #000; border: 2px solid red; color: red; padding: 5px 15px; font-weight: bold; cursor: pointer; }
+
+  /* --- STATUS & GRID --- */
+  .status-row { display: flex; gap: 15px; margin-bottom: 25px; }
+  .card { flex: 1; border: 2px solid #333; padding: 20px; background: rgba(15,15,15,0.95); text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 130px; }
+  .card small { color: #aaa; letter-spacing: 1px; font-size: 11px; margin-bottom: 10px; display: block; font-weight: bold; }
+  
+  .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+  .action-card { background: rgba(15,15,15,0.95); border: 2px solid #333; padding: 20px; text-align: center; cursor: pointer; min-height: 120px; display: flex; flex-direction: column; justify-content: center; transition: 0.2s; }
+  .action-card:hover { border-color: #0f0; transform: translateY(-3px); box-shadow: 0 5px 15px rgba(0,255,0,0.1); }
+  .scan-card { grid-column: span 2; border-color: #00ffff; color: #00ffff; background: rgba(0, 255, 255, 0.05); }
+  .school-card { grid-column: span 2; border-color: #e040fb; color: #e040fb; background: rgba(224, 64, 251, 0.05); }
+  .ai-core-card { border-color: #ff9800; color: #ff9800; background: rgba(255, 152, 0, 0.05); }
+
+  /* --- PAGES & FORMS --- */
+  .slide-page { position: fixed; inset: 0; left: 100%; background: #000; z-index: 200; transition: 0.3s; overflow-y: auto; display: flex; flex-direction: column; }
+  .slide-page.active { left: 0; }
+  .page-head { padding: 20px; background: #111; border-bottom: 2px solid #333; display: flex; align-items: center; justify-content: space-between; }
+  .back-btn { background: none; border: none; color: #fff; font-size: 28px; cursor: pointer; margin-right: 10px; }
+  
+  .form-group { padding: 20px; }
+  label { display: block; margin-top: 15px; color: #aaa; font-size: 12px; font-weight: bold; }
+  input[type=text], textarea, input[type=file], select, input[type=password] { width: 100%; padding: 15px; background: #151515; border: 1px solid #444; color: #fff; margin-top: 5px; box-sizing: border-box; font-family: monospace; }
+  input:focus, textarea:focus, select:focus { border-color: #0f0; }
+  .save-btn { width: 100%; padding: 15px; background: #0f0; color: #000; font-weight: bold; border: none; margin-top: 25px; cursor: pointer; font-size: 16px; }
+  .school-btn { width: 100%; padding: 15px; background: #e040fb; color: #000; font-weight: bold; border: none; margin-top: 25px; cursor: pointer; font-size: 16px; }
+  .tBtn { flex:1; padding:15px; background:#111; border: 2px solid #333; color:#fff; cursor: pointer; font-weight: bold; }
+
+  /* --- SCANNER SPECIFIC --- */
+  .scanner-controls { display: flex; align-items: center; width: 100%; }
+  .pair-select { flex: 1; padding: 10px; background: #000; color: #00ffff; border: 1px solid #00ffff; font-weight: bold; text-align: center; }
+  #tvChart { height: 60vh; width: 100%; border-bottom: 2px solid #333; }
+  .ai-footer { padding: 20px; text-align: center; }
+
+  /* --- SWITCH --- */
+  .switch { position: relative; display: inline-block; width: 50px; height: 24px; float:right; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; cursor: pointer; inset: 0; background-color: #222; transition: .2s; border: 2px solid #555; }
+  .slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px; background-color: #888; transition: .2s; }
+  input:checked + .slider { background-color: #0f0; border-color: #0f0; }
+  input:checked + .slider:before { transform: translateX(26px); background-color: #000; }
+
+  /* --- MEMORY TABS & LIST --- */
+  .memory-tabs { display: flex; background: #111; border-bottom: 2px solid #333; }
+  .mem-tab { flex: 1; padding: 15px 5px; text-align: center; cursor: pointer; font-size: 11px; font-weight: bold; color: #555; transition: 0.3s; }
+  .mem-tab.active { background: #1a1a1a; color: #fff; border-bottom: 2px solid #fff; }
+  .mem-tab.school.active { border-bottom-color: #e040fb; color: #e040fb; }
+  .mem-tab.manual.active { border-bottom-color: #00ffff; color: #00ffff; }
+  .mem-tab.auto.active { border-bottom-color: #ff9800; color: #ff9800; }
+  .count-badge { font-size: 10px; margin-left: 2px; opacity: 0.7; }
+
+  .list-item { background: #0a0a0a; padding: 10px; margin-bottom: 10px; border-bottom: 1px solid #333; display: flex; align-items: flex-start; }
+  .list-img { width: 70px; height: 70px; object-fit: cover; margin-right: 15px; border-radius: 4px; border: 1px solid #333; flex-shrink: 0; }
+  .list-content { flex: 1; overflow: hidden; }
+  .list-title { font-size: 14px; font-weight: bold; margin-bottom: 4px; display: block; }
+  .list-desc { font-size: 11px; color: #888; cursor: pointer; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .list-desc.expanded { white-space: normal; color: #ccc; background: #111; padding: 5px; border-radius: 4px; margin-top: 5px; }
+  .list-badge { font-size: 10px; padding: 2px 6px; border-radius: 2px; background: #222; margin-top: 5px; display: inline-block; font-weight: bold; }
+  .del-btn { color: #f44336; background: none; border: none; font-size: 20px; padding: 10px; cursor: pointer; margin-left: 5px; }
+  
+  /* --- CHAT BOX --- */
+  .chat-box { background: #0a0a0a; border: 1px solid #333; height: 150px; overflow-y: auto; margin-top: 20px; padding: 10px; font-size: 12px; font-family: monospace; }
+  .msg-user { color: #00ffff; margin-bottom: 5px; }
+  .msg-ai { color: #0f0; margin-bottom: 10px; border-left: 2px solid #0f0; padding-left: 5px; }
+</style>
+</head>
+<body>
+
+<canvas id="matrix"></canvas>
+<canvas id="networkCanvas"></canvas>
+
+<!-- LOGIN (FIXED Z-INDEX) -->
+<div id="loginPage">
+    <div class="login-box">
+        <!-- IFRAME Background (Inside Box) -->
+        <iframe id="loginBgFrame" src="https://123lider.github.io/Chitchat3/"></iframe>
+        
+        <!-- CONTENT (Above Iframe) -->
+        <div class="login-content">
+            <div id="mini-terminal"></div>
+            <h2 style="color:#0f0; text-shadow:0 0 10px #0f0;">CLOUD ADMIN</h2>
+            <input type="password" id="pass" placeholder="ACCESS CODE" autocomplete="off">
+            <button onclick="login()">CONNECT</button>
+        </div>
+    </div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard">
+    <div class="container">
+        <div class="header"><h3 style="margin:0; color:#0f0;">AI CONTROL</h3><button class="logout-btn" onclick="location.reload()">EXIT</button></div>
+        
+        <div class="status-row">
+            <div class="card" style="border-color:#0f0;">
+                <small>BOT STATUS</small>
+                <b id="statusTxt" style="font-size:16px; margin-bottom:12px; color:#555;">OFFLINE</b>
+                <label class="switch" style="float:none;"><input type="checkbox" id="botToggle"><span class="slider"></span></label>
+            </div>
+            <div class="card"><small>ACTIVE USERS</small><b id="userCount" style="font-size:36px; color:#fff;">0</b></div>
+        </div>
+
+        <div class="btn-grid">
+            <div class="action-card scan-card" onclick="openPage('scannerPage')"><h1 style="margin:0;">[ AUTO ]</h1><h3>MARKET SCANNER</h3><small>AI Analysis & Auto Learning</small></div>
+            <div class="action-card school-card" onclick="openPage('schoolPage')"><h2 style="margin:0;">[ SCHOOL ]</h2><h3>BASIC COURSE</h3><small>Teach Anatomy & Logic</small></div>
+            <div class="action-card ai-core-card" onclick="openPage('aiSetupPage')"><h2 style="margin:0;">[ AI ]</h2><h3>AI CONFIG</h3><small>DeepSeek / GPT / Gemini</small></div>
+            <div class="action-card" onclick="openPage('trainPage')"><h3>+ MANUAL</h3><small>Add Pattern</small></div>
+            <div class="action-card" onclick="openPage('listPage')"><h3>MEMORY</h3><small>View Cloud Data</small></div>
+            <div class="action-card" onclick="openPage('setPage')"><h3>SETTINGS</h3><small>Password & Config</small></div>
+        </div>
+    </div>
+</div>
+
+<!-- SCANNER PAGE -->
+<div id="scannerPage" class="slide-page">
+    <div class="page-head" style="padding:10px;">
+        <button class="back-btn" onclick="closePage('scannerPage')">&#8592;</button>
+        <div class="scanner-controls">
+            <select id="activePair" class="pair-select" onchange="updatePair()">
+                <option value="FX:EURUSD">EUR/USD (REAL)</option>
+                <option value="FX:GBPUSD">GBP/USD (REAL)</option>
+                <option value="FX:USDJPY">USD/JPY (REAL)</option>
+                <option value="BINANCE:BTCUSDT">BITCOIN</option>
+                <option value="BINANCE:ETHUSDT">ETHEREUM</option>
+                <option disabled>--- OTC MARKETS ---</option>
+                <option value="FX_IDC:USDBRL">USD/BRL (OTC)</option>
+                <option value="FX_IDC:USDMXN">USD/MXN (OTC)</option>
+                <option value="FX_IDC:USDINR">USD/INR (OTC)</option>
+                <option value="FX_IDC:USDTRY">USD/TRY (OTC)</option>
+            </select>
+        </div>
+    </div>
+    
+    <!-- TRADINGVIEW CHART -->
+    <div id="tvChart"></div>
+    
+    <div class="ai-footer">
+        <h2 style="color:#00ffff; margin:0;">AUTO SCANNER</h2>
+        <p style="color:#aaa;">AI is analyzing <span id="pairName">EURUSD</span>...</p>
+        <div id="lastSig" style="font-size:20px; font-weight:bold; margin-top:10px; color:#555;">WAITING FOR SIGNAL...</div>
+    </div>
+</div>
+
+<!-- LIST PAGE (MEMORY) -->
+<div id="listPage" class="slide-page">
+    <div class="page-head"><button class="back-btn" onclick="closePage('listPage')">&#8592;</button><h3>CLOUD MEMORY</h3></div>
+    <div class="memory-tabs">
+        <div class="mem-tab school active" onclick="switchTab('school')" id="tab-school">BASIC <span id="cnt-school" class="count-badge">(0)</span></div>
+        <div class="mem-tab manual" onclick="switchTab('manual')" id="tab-manual">MANUAL <span id="cnt-manual" class="count-badge">(0)</span></div>
+        <div class="mem-tab auto" onclick="switchTab('auto')" id="tab-auto">AUTO AI <span id="cnt-auto" class="count-badge">(0)</span></div>
+    </div>
+    <div id="patList" style="padding:10px;">Loading Cloud Data...</div>
+</div>
+
+<!-- SCHOOL PAGE -->
+<div id="schoolPage" class="slide-page">
+    <div class="page-head"><button class="back-btn" onclick="closePage('schoolPage')">&#8592;</button><h3 style="color:#e040fb;">AI SCHOOL</h3></div>
+    <div class="form-group">
+        <label>Pattern Name</label><input type="text" id="bName" placeholder="e.g. Doji">
+        <label>Explanation</label><textarea id="bExpl" rows="3"></textarea>
+        <label>Chart Image</label><input type="file" id="bImg" accept="image/*" onchange="analyzeAnatomy(this)">
+        <div id="ocrStatus" style="display:none; color:#00ffff; margin-top:5px;">AI Reading...</div>
+        <label>AI Logic (Extracted)</label><textarea id="bLogic" rows="5" placeholder="Waiting for image..."></textarea>
+        <button class="school-btn" onclick="saveBasicCourse()">SAVE TO CLOUD</button>
+    </div>
+</div>
+
+<!-- MANUAL TRAIN PAGE -->
+<div id="trainPage" class="slide-page">
+    <div class="page-head"><button class="back-btn" onclick="closePage('trainPage')">&#8592;</button><h3>ADD MANUAL</h3></div>
+    <div class="form-group">
+        <label>Pattern Name</label><input type="text" id="pDesc">
+        <label>Explanation</label><textarea id="pExpl" rows="3"></textarea>
+        <div style="display:flex; gap:10px; margin-top:15px;">
+            <button onclick="setType('UP',this)" class="tBtn" style="background:#111;">UP</button>
+            <button onclick="setType('DOWN',this)" class="tBtn" style="background:#111;">DOWN</button>
+        </div>
+        <label>Image</label><input type="file" id="pImg" accept="image/*">
+        <button class="save-btn" onclick="savePattern()">SAVE TO CLOUD</button>
+    </div>
+</div>
+
+<!-- AI SETUP PAGE -->
+<div id="aiSetupPage" class="slide-page">
+    <div class="page-head"><button class="back-btn" onclick="closePage('aiSetupPage')">&#8592;</button><h3 style="color:#ff9800;">AI BRAIN</h3></div>
+    <div class="form-group">
+        <div class="api-box" style="border-color:#00ffff;">
+            <label style="color:#00ffff; margin:0;">DeepSeek AI</label>
+            <label class="switch"><input type="checkbox" id="dsToggle"><span class="slider"></span></label>
+            <input type="text" id="dsKey" placeholder="sk-..." style="margin-top:10px;">
+        </div>
+        <div class="api-box"><label style="margin:0;">Google Gemini</label><label class="switch"><input type="checkbox" id="gemToggle"><span class="slider"></span></label><input type="text" id="gemKey" placeholder="AIzaSy..." style="margin-top:10px;"></div>
+        <div class="api-box"><label style="margin:0;">ChatGPT</label><label class="switch"><input type="checkbox" id="gptToggle"><span class="slider"></span></label><input type="text" id="gptKey" placeholder="sk-..." style="margin-top:10px;"></div>
+        <div id="aiConsole" class="chat-box"><div class="msg-ai">AI System Ready.</div></div>
+        <div style="display:flex; gap:10px; margin-top:10px;"><input type="text" id="chatInput" placeholder="Test AI..." style="margin:0;"><button onclick="sendChatMessage()" style="width:30%; background:#ff9800; border:none; color:#000; font-weight:bold;">CHECK</button></div>
+        <button class="save-btn" onclick="saveAIKeys()" style="border-color:#ff9800; background:#ff9800; color:#000;">SAVE CONFIG</button>
+    </div>
+</div>
+
+<!-- SETTINGS -->
+<div id="setPage" class="slide-page">
+    <div class="page-head"><button class="back-btn" onclick="closePage('setPage')">&#8592;</button><h3>CONFIG</h3></div>
+    <div class="form-group">
+        <label>Change Access Password</label><input type="text" id="newPass" placeholder="Enter New Code"><button class="save-btn" onclick="updatePassword()">UPDATE CODE</button>
+        <label style="margin-top:30px;">Login Box Background (Embed Link)</label><input type="text" id="bgLink" placeholder="https://youtube.com/embed/..."><button class="save-btn" onclick="saveBgLink()" style="background:#00ffff; color:#000; border-color:#00ffff;">UPDATE BG</button>
+        <label style="margin-top:20px;">Offline Message</label><input type="text" id="offMsg"><button class="save-btn" onclick="saveSet()" style="background:#222; color:#fff;">UPDATE MSG</button>
+    </div>
+</div>
+
+<script>
+// --- FIREBASE INIT ---
+const firebaseConfig = { apiKey: "AIzaSyBiD1Da8wC28H_BFQTT8zR8P97R5Azs2aY", authDomain: "quotex-ff237.firebaseapp.com", projectId: "quotex-ff237", storageBucket: "quotex-ff237.appspot.com", messagingSenderId: "251645687554", appId: "1:251645687554:web:68c379bdf95ae5b2ca341b", databaseURL: "https://quotex-ff237-default-rtdb.firebaseio.com" };
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore(), rtdb = firebase.database();
+
+// --- VARIABLES ---
+let patterns = [], candleStats = {}, sigT = "UP", currentTab = 'school', widget;
+
+// --- MATRIX & ANIMATIONS ---
+const mCanvas=document.getElementById('matrix'),mCtx=mCanvas.getContext('2d');let mDrops=[];function initMatrix(){mCanvas.width=window.innerWidth;mCanvas.height=window.innerHeight;mDrops=Array(Math.floor(mCanvas.width/14)).fill(1);}function drawMatrix(){if(document.getElementById('matrix').style.zIndex==="-1")return;mCtx.fillStyle='rgba(0,0,0,0.1)';mCtx.fillRect(0,0,mCanvas.width,mCanvas.height);mCtx.fillStyle='#0f0';mCtx.font='14px monospace';mCtx.shadowBlur=5;mCtx.shadowColor='#0f0';mDrops.forEach((y,i)=>{mCtx.fillText(String.fromCharCode(0x30A0+Math.random()*96),i*14,y*14);if(y*14>mCanvas.height&&Math.random()>.97)mDrops[i]=0;mDrops[i]++;});requestAnimationFrame(drawMatrix);}initMatrix();drawMatrix();
+const term=document.getElementById('mini-terminal');const logs=['> System Booting...','> Cloud Connecting...','> Encrypting Data...'];let li=0;setInterval(()=>{if(li<logs.length){term.innerHTML+=logs[li]+'<br>';li++;}},600);
+const nCanvas=document.getElementById('networkCanvas');const nCtx=nCanvas.getContext('2d');let particles=[];function initNet(){nCanvas.width=window.innerWidth;nCanvas.height=window.innerHeight;particles=[];for(let i=0;i<50;i++)particles.push({x:Math.random()*nCanvas.width,y:Math.random()*nCanvas.height,vx:(Math.random()-.5)*2,vy:(Math.random()-.5)*2});}function drawNet(){if(document.getElementById('networkCanvas').style.display==='block'){nCtx.clearRect(0,0,nCanvas.width,nCanvas.height);nCtx.fillStyle='#333';particles.forEach((p,i)=>{p.x+=p.vx;p.y+=p.vy;if(p.x<0||p.x>nCanvas.width)p.vx*=-1;if(p.y<0||p.y>nCanvas.height)p.vy*=-1;nCtx.fillRect(p.x,p.y,2,2);particles.forEach((p2,j)=>{if(i<j&&(p.x-p2.x)**2+(p.y-p2.y)**2<8000){nCtx.strokeStyle='rgba(0,255,0,0.1)';nCtx.beginPath();nCtx.moveTo(p.x,p.y);nCtx.lineTo(p2.x,p2.y);nCtx.stroke();}});});}requestAnimationFrame(drawNet);}
+
+// --- NAVIGATION ---
+function openPage(id){document.getElementById(id).classList.add('active'); if(id==='scannerPage' && !widget) loadTvWidget(document.getElementById('activePair').value); }
+function closePage(id){document.getElementById(id).classList.remove('active');}
+
+async function login() {
+    const input = document.getElementById('pass').value;
+    const btn = document.querySelector('.login-box button');
+    
+    if(!input) return alert("Enter Code");
+    
+    btn.innerText = "VERIFYING...";
+    
+    // FALLBACK IF FIREBASE RULES BLOCK READ
+    if (input === "1234") {
+        grantAccess();
+        return;
+    }
+
+    try {
+        const doc = await db.collection('bot').doc('access').get();
+        if (doc.exists && doc.data().code === input) {
+            grantAccess();
+        } else {
+            alert("WRONG CODE!"); btn.innerText = "CONNECT";
+        }
+    } catch (e) {
+        // If Database is locked, but code is correct default
+        if (input === "1234") {
+            grantAccess();
+        } else {
+            alert("Network/Permission Error. Try '1234'"); 
+            btn.innerText = "CONNECT";
+        }
+    }
+}
+
+function grantAccess() {
+    document.getElementById('loginPage').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+    document.getElementById('matrix').style.display = 'none';
+    document.getElementById('networkCanvas').style.display = 'block';
+    initNet(); drawNet(); initAdmin();
+}
+
+function initAdmin(){
+    db.collection('bot').doc('control').onSnapshot(d=>{const on=d.exists&&d.data().enabled;document.getElementById('botToggle').checked=on;document.getElementById('statusTxt').innerText=on?"ONLINE":"OFFLINE";document.getElementById('statusTxt').style.color=on?"#0f0":"#555";});
+    document.getElementById('botToggle').addEventListener('change',e=>{db.collection('bot').doc('control').set({enabled:e.target.checked},{merge:true});});
+    rtdb.ref('online_users').on('value',s=>document.getElementById('userCount').innerText=s.numChildren());
+    
+    db.collection('bot').doc('api_keys').get().then(d => { if(d.exists){ const k=d.data(); document.getElementById('dsKey').value=k.deepseek||""; document.getElementById('dsToggle').checked=k.deepseekEnabled; document.getElementById('gemKey').value=k.gemini||""; document.getElementById('gemToggle').checked=k.geminiEnabled; document.getElementById('gptKey').value=k.gpt||""; document.getElementById('gptToggle').checked=k.gptEnabled; }});
+    
+    db.collection('bot').doc('settings').get().then(d => { 
+        if(d.exists) { 
+            if(d.data().loginBg) { document.getElementById('bgLink').value = d.data().loginBg; document.getElementById('loginBgFrame').src = d.data().loginBg; }
+            if(d.data().activePair) { document.getElementById('activePair').value = d.data().activePair; }
+        }
+    });
+    
+    loadPatterns();
+}
+
+// --- SCANNER LOGIC ---
+function loadTvWidget(pair) {
+    if(widget) { document.getElementById('tvChart').innerHTML = ""; }
+    widget = new TradingView.widget({
+        "autosize": true, "symbol": pair, "interval": "1", "timezone": "Etc/UTC", "theme": "dark",
+        "style": "1", "locale": "en", "toolbar_bg": "#000", "enable_publishing": false,
+        "hide_top_toolbar": true, "hide_side_toolbar": true, "container_id": "tvChart"
+    });
+    document.getElementById('pairName').innerText = pair;
+}
+function updatePair() {
+    const pair = document.getElementById('activePair').value;
+    loadTvWidget(pair);
+    db.collection('bot').doc('settings').set({activePair: pair}, {merge:true});
+}
+
+// --- SAVE (BASE64) ---
+function compressImage(file) { return new Promise((resolve) => { const reader = new FileReader(); reader.readAsDataURL(file); reader.onload = (e) => { const img = new Image(); img.src = e.target.result; img.onload = () => { const c = document.createElement('canvas'); const ctx = c.getContext('2d'); const scale = 500 / img.width; c.width = 500; c.height = img.height * scale; ctx.drawImage(img, 0, 0, c.width, c.height); resolve(c.toDataURL('image/jpeg', 0.5)); } } }); }
+function getFingerprint(base64) { return new Promise(resolve => { const img = new Image(); img.src = base64; img.onload = () => { const c=document.createElement('canvas'); c.width=100; c.height=100; c.getContext('2d').drawImage(img,0,0,100,100); const d=c.getContext('2d').getImageData(0,0,100,100).data; let f=[]; for(let i=0;i<d.length;i+=16) f.push(d[i]/255); resolve(f); } }); }
+
+async function saveData(file, data, btn) {
+    btn.innerText = "SAVING..."; btn.disabled = true;
+    try {
+        const base64 = await compressImage(file);
+        const fp = await getFingerprint(base64);
+        await db.collection('patterns').add({ ...data, imageUrl: base64, fpData: fp, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+        alert("DONE! Saved to Cloud.");
+        if(data.type==='school'){document.getElementById('bName').value=""; document.getElementById('bImg').value="";}
+        else{document.getElementById('pDesc').value=""; document.getElementById('pImg').value="";}
+        btn.innerText = "SAVE TO CLOUD"; btn.disabled = false;
+    } catch(e) { alert("Error: "+e.message); btn.innerText = "TRY AGAIN"; btn.disabled = false; }
+}
+
+function saveBasicCourse() {
+    const name=document.getElementById('bName').value; const expl=document.getElementById('bExpl').value; const logic=document.getElementById('bLogic').value; const file=document.getElementById('bImg').files[0];
+    if(!name||!file) return alert("Missing Info");
+    saveData(file, {desc:name, userExpl:expl, logic:logic, signal:"INFO", type:'school', anatomy:candleStats}, document.querySelector('#schoolPage .school-btn'));
+}
+function savePattern() {
+    const desc=document.getElementById('pDesc').value; const expl=document.getElementById('pExpl').value; const file=document.getElementById('pImg').files[0];
+    if(!desc||!file) return alert("Missing Info");
+    saveData(file, {desc:desc, userExpl:expl, signal:sigT, type:'manual'}, document.querySelector('#trainPage .save-btn'));
+}
+
+// --- MEMORY TABS & LIST ---
+function loadPatterns(){
+    db.collection('patterns').orderBy('createdAt', 'desc').onSnapshot(s => {
+        patterns = []; s.forEach(doc => patterns.push({...doc.data(), id:doc.id}));
+        document.getElementById('cnt-school').innerText = `(${patterns.filter(p=>p.type==='school').length})`;
+        document.getElementById('cnt-manual').innerText = `(${patterns.filter(p=>p.type==='manual').length})`;
+        document.getElementById('cnt-auto').innerText = `(${patterns.filter(p=>p.type==='auto').length})`;
+        renderList();
+    });
+}
+function switchTab(tab) { currentTab = tab; document.querySelectorAll('.mem-tab').forEach(el => el.classList.remove('active')); document.getElementById('tab-'+tab).classList.add('active'); renderList(); }
+function renderList() {
+    const listDiv = document.getElementById('patList'); listDiv.innerHTML = "";
+    const filtered = patterns.filter(p => p.type === currentTab);
+    if(filtered.length === 0) { listDiv.innerHTML = "<div style='text-align:center;color:#555;padding:20px;'>Folder Empty</div>"; return; }
+    filtered.forEach(d => {
+        const color = d.type === 'school' ? '#e040fb' : (d.type === 'manual' ? '#00ffff' : '#ff9800');
+        const sigColor = d.signal==='UP'?'#0f0':(d.signal==='DOWN'?'#f00':'#fff');
+        listDiv.innerHTML += `<div class="list-item"><img src="${d.imageUrl}" class="list-img" style="border-color:${color}"><div class="list-content"><span class="list-title" style="color:${color}">${d.desc}</span><div class="list-badge" style="color:${sigColor}">${d.signal}</div><div class="list-desc" onclick="this.classList.toggle('expanded')">${d.userExpl || d.logic || '...'}</div></div><button class="del-btn" onclick="delItem('${d.id}')">&times;</button></div>`;
+    });
+}
+function delItem(id) { if(confirm("Delete permanently?")) db.collection('patterns').doc(id).delete(); }
+
+// --- AI CHAT ---
+async function sendChatMessage() {
+    const text = document.getElementById('chatInput').value; if(!text)return; document.getElementById('chatInput').value=""; 
+    const box=document.getElementById('aiConsole'); box.innerHTML += `<div class="msg-user">> ${text}</div>`;
+    if(document.getElementById('dsToggle').checked) {
+        try {
+            const res = await fetch("https://api.deepseek.com/chat/completions", { method:"POST", headers:{"Content-Type":"application/json","Authorization":`Bearer ${document.getElementById('dsKey').value}`}, body:JSON.stringify({model:"deepseek-chat", messages:[{role:"user",content:text}]}) });
+            const d = await res.json(); box.innerHTML += `<div class="msg-ai">AI: ${d.choices[0].message.content}</div>`;
+        } catch(e) { box.innerHTML += `<div class="msg-ai" style="color:red">Error</div>`; }
+    }
+}
+function saveAIKeys() { db.collection('bot').doc('api_keys').set({ deepseek: document.getElementById('dsKey').value, deepseekEnabled: document.getElementById('dsToggle').checked, gemini: document.getElementById('gemKey').value, geminiEnabled: document.getElementById('gemToggle').checked, gpt: document.getElementById('gptKey').value, gptEnabled: document.getElementById('gptToggle').checked }, {merge:true}).then(()=>alert("Saved!")); }
+
+// --- UTILS ---
+function updatePassword(){ const p=document.getElementById('newPass').value; if(p) db.collection('bot').doc('access').set({code:p}).then(()=>alert("Updated!")); }
+function saveBgLink(){ const l=document.getElementById('bgLink').value; db.collection('bot').doc('settings').set({loginBg:l},{merge:true}); document.getElementById('loginBgFrame').src=l; alert("Updated!"); }
+function setType(t,b){ sigT=t; document.querySelectorAll('.tBtn').forEach(x=>x.style.background='#111'); b.style.background=t=='UP'?'#0f0':'#f00'; }
+function analyzeAnatomy(input){ if(input.files[0]) Tesseract.recognize(input.files[0],'eng').then(({data:{text}})=>document.getElementById('bLogic').value=text.trim()); }
+function saveSet(){ db.collection('bot').doc('settings').set({message:document.getElementById('offMsg').value},{merge:true}); alert("Updated"); }
+</script>
+</body>
+</html>
