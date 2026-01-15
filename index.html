@@ -183,9 +183,9 @@
         <!-- CONTENT (Above Iframe) -->
         <div class="login-content">
             <div id="mini-terminal"></div>
-            <h2 style="color:#0f0; text-shadow:0 0 10px #0f0;">CLOUD ADMIN</h2>
+            <h2 style="color:#0f0; text-shadow:0 0 10px #0f0;">ADMIN</h2>
             <input type="password" id="pass" placeholder="ACCESS CODE" autocomplete="off">
-            <button onclick="login()">CONNECT</button>
+            <button onclick="login()"Login</button>
         </div>
     </div>
 </div>
@@ -474,4 +474,5 @@ function analyzeAnatomy(input){ if(input.files[0]) Tesseract.recognize(input.fil
 function saveSet(){ db.collection('bot').doc('settings').set({message:document.getElementById('offMsg').value},{merge:true}); alert("Updated"); }
 </script>
 </body>
+
 </html>
