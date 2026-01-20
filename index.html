@@ -390,8 +390,16 @@
     <div id="modalMsg" class="modal-msg">Processing...</div>
     <button onclick="closeModal()">ACKNOWLEDGE</button>
   </div>
-</div>
+</div
 <script>
+
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js")
+    .then(() => console.log("SW Registered"))
+    .catch(e => console.log("SW Failed", e));
+}
+
 
 /* MATRIX EFFECT */
 const canvas = document.getElementById('matrix');
@@ -858,3 +866,4 @@ function saveSet(){ db.collection('bot').doc('settings').set({message:document.g
 </script>
 </body>
 </html>
+
