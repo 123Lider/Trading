@@ -13,7 +13,8 @@
 <script src='https://unpkg.com/tesseract.js@v2.1.0/dist/tesseract.min.js'></script>
 <!-- TradingView Widget -->
 <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-
+<!-- Lightweight Charts (For History Bot) -->
+<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   /* --- CORE UI --- */
   * { box-sizing: border-box; outline: none; -webkit-tap-highlight-color: transparent; }
@@ -36,8 +37,8 @@
 
 .login-box {
   position: relative;
-  width: 410px;
-  padding: 64px;
+  width: 408px;
+  padding: 70px;
   border: 2px solid #0f0;
   overflow: hidden;
 }
@@ -238,7 +239,7 @@
     <div class="content">
       <div id="mini-terminal"></div>
 
-      <h2 style="color:#0f0; font-family:'Courier New', sans-serif; margin-bottom:20px;">
+      <h2 style="color:#0f0; font-family:'Courier New', sans-serif; margin-bottom:30px;">
         ADMIN
       </h2>
 
@@ -383,6 +384,42 @@
         <label style="margin-top:20px;">Offline Message</label><input type="text" id="offMsg"><button class="save-btn" onclick="saveSet()" style="background:#222; color:#fff;">UPDATE MSG</button>
     </div>
 </div>
+<!-- NEW HISTORY TRAINING PAGE -->
+<div id="historyPage" class="slide-page">
+    <div class="page-head">
+        <button class="back-btn" onclick="closePage('historyPage'); stopTraining();">&#8592;</button>
+        <h3 style="color:#ffe082;">HISTORY LAB</h3>
+    </div>
+    
+    <div style="padding:15px; background:#111; border-bottom:1px solid #333;">
+        <label style="color:#aaa; font-size:12px;">1. SELECT MARKET</label>
+        <select id="histMarket" onchange="loadHistoryData()" style="background:#000; color:#fff; padding:10px; border:1px solid #333; width:100%; margin-top:5px;">
+            <option value="EUR">EUR/USD</option>
+            <option value="BTC">BITCOIN</option>
+            <option value="ETH">ETHEREUM</option>
+            <option value="XAU">GOLD</option>
+        </select>
+        <div style="margin-top:10px; font-size:11px; color:#aaa;">
+            STATUS: <span id="histStatus" style="color:#ffe082">WAITING...</span>
+        </div>
+    </div>
+
+    <!-- REAL CHART CONTAINER -->
+    <div id="historyChartContainer" style="width:100%; height:350px; position:relative;">
+        <div id="trainOverlay" style="position:absolute; top:10px; right:10px; background:rgba(0,0,0,0.8); color:#0f0; border:1px solid #0f0; padding:5px; font-size:10px; display:none; z-index:10;">● BOT LEARNING...</div>
+    </div>
+
+    <div style="padding:15px; border-top:1px solid #333;">
+        <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
+            <small style="color:#aaa">LEARNED: <b id="learnedCount" style="color:#fff">0</b></small>
+            <small style="color:#aaa">MAX: 2 HOURS</small>
+        </div>
+        
+        <button id="btnStartTrain" onclick="startTraining()" style="width:100%; padding:15px; background:#ffe082; color:#000; font-weight:bold; border:none; cursor:pointer;" disabled>2. START TRAINING (AUTO SCROLL)</button>
+        
+        <button onclick="stopTraining()" style="width:100%; padding:10px; background:#222; color:#fff; border:1px solid #444; margin-top:10px; cursor:pointer;">STOP & SAVE TO MEMORY</button>
+    </div>
+
 <!-- CUSTOM POPUP HTML -->
 <div id="customModal" class="modal-overlay">
   <div class="modal-box">
@@ -391,14 +428,7 @@
     <button onclick="closeModal()">ACKNOWLEDGE</button>
   </div>
 </div>
-  <script>
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js")
-    .then(() => console.log("SW Registered"))
-    .catch(e => console.log("SW Failed", e));
-}
-</script>
- 
+
 <script>
 
 /* MATRIX EFFECT */
@@ -456,6 +486,26 @@ function checkLogin(){
   }
 }
 
+// ফাংশন: সাউন্ড আপলোড
+async function uploadSound(type){
+    const fileInput = type==='open' ? document.getElementById('openSoundFile') : document.getElementById('wrongPassFile');
+    const file = fileInput.files[0];
+    if(!file) return alert("Please select a file");
+
+    const uploadTask = storageRef.child(`sounds/${type}.mp3`).put(file);
+    uploadTask.on('state_changed', 
+        snapshot => {}, 
+        err => alert("Upload Error: " + err),
+        async () => {
+            const url = await uploadTask.snapshot.ref.getDownloadURL();
+            // URL ডাটাবেসে সেভ
+            await db.collection('bot').doc('sounds').set({[type]: url}, {merge:true});
+            alert("Sound uploaded successfully!");
+        }
+    );
+}
+
+
 // --- FIREBASE INIT ---
 const firebaseConfig = { apiKey: "AIzaSyBiD1Da8wC28H_BFQTT8zR8P97R5Azs2aY", authDomain: "quotex-ff237.firebaseapp.com", projectId: "quotex-ff237", storageBucket: "quotex-ff237.appspot.com", messagingSenderId: "251645687554", appId: "1:251645687554:web:68c379bdf95ae5b2ca341b", databaseURL: "https://quotex-ff237-default-rtdb.firebaseio.com" }
 firebase.initializeApp(firebaseConfig);
@@ -465,8 +515,25 @@ const db = firebase.firestore(), rtdb = firebase.database()
 let patterns = [], tempMemory = [], candleStats = {}, sigT = "UP", currentTab = 'school', widget, isScanning = false, isLearning = false;
 
 // --- NAVIGATION ---
-function openPage(id){document.getElementById(id).classList.add('active'); if(id==='scannerPage' && !widget) loadTvWidget(document.getElementById('activePair').value); }
-function closePage(id){document.getElementById(id).classList.remove('active');}
+// পেজ খোলার ফাংশন (History Add করা হয়েছে)
+function openPage(id) {
+    document.getElementById(id).classList.add('active');
+    
+    // ব্রাউজার হিস্ট্রিতে নতুন স্টেট যোগ করা
+    window.history.pushState({page: id}, null, "#" + id);
+
+    // যদি স্ক্যানার পেজ হয়, তবে উইজেট লোড হবে
+    if (id === 'scannerPage' && !widget) {
+        loadTvWidget(document.getElementById('activePair').value);
+    }
+}
+
+// পেজ বন্ধ করার ফাংশন (সরাসরি ক্লাস না সরিয়ে ব্যাক করা হবে)
+function closePage(id) {
+    // এখন আর সরাসরি ক্লাস রিমুভ করব না, আমরা ব্রাউজারকে বলব "ব্যাক যাও"
+    // এতে মোবাইলের ব্যাক বাটন এবং স্ক্রিনের ব্যাক বাটন একই কাজ করবে
+    window.history.back();
+}
 
 async function login() {
     const input = document.getElementById('pass').value;
@@ -484,6 +551,20 @@ async function login() {
         // যদি ডাটাবেসে ডকুমেন্ট না থাকে তবে নতুন তৈরি করবে
         if(!doc.exists) db.collection('bot').doc('access').set({code:"1234"});
         
+        // আপনার login() ফাংশনের ভেতরে এই পরিবর্তন করুন:
+
+if (input === serverPass) {
+    document.getElementById('loginPage').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+    document.getElementById('matrix').style.display = 'none';
+    
+    // --- এই লাইনটি নতুন যোগ করুন ---
+    window.history.pushState({page: 'dashboard'}, null, "#dashboard");
+    // ---------------------------------
+
+    initAdmin();
+}
+
         if (input === serverPass) {
             // লগিন সফল হলে পেজ পরিবর্তন
             document.getElementById('loginPage').style.display = 'none';
@@ -507,6 +588,28 @@ async function login() {
         btn.innerText = "LOGIN"; 
     }
 }
+
+// মোবাইলের ব্যাক বাটন চাপলে এই ফাংশন কাজ করবে
+window.addEventListener('popstate', function(event) {
+    // বর্তমানে খোলা থাকা সব স্লাইড পেজ খুঁজে বের করা
+    const activePages = document.querySelectorAll('.slide-page.active');
+    
+    if (activePages.length > 0) {
+        activePages.forEach(page => {
+            page.classList.remove('active'); // পেজ বন্ধ হবে
+            
+            // স্পেশাল: যদি স্ক্যানার পেজ বন্ধ হয়, তবে স্ক্যানিং থামিয়ে দিবে
+            if (page.id === 'scannerPage') {
+                stopAll(); 
+            }
+            
+            // স্পেশাল: যদি হিস্ট্রি পেজ বন্ধ হয়, ট্রেনিং থামিয়ে দিবে
+            if (page.id === 'historyPage') {
+                // stopTraining(); // যদি আপনার এই ফাংশন থাকে
+            }
+        });
+    }
+});
 
 // --- CUSTOM ALERT FUNCTION ---
 function showAlert(msg, title = "SYSTEM NOTICE") {
@@ -555,6 +658,7 @@ function initAdmin(){
     loadPatterns();
 }
 
+
 // --- SCANNER LOGIC (TradingView + Brain) ---
 function loadTvWidget(pair) {
     if(widget) { document.getElementById('tvChart').innerHTML = ""; }
@@ -573,7 +677,150 @@ function updatePair() {
 }
 
 // --- BRAIN LOOP ---
-function startAutoScan(){ isScanning=true; document.getElementById('btnScan').innerText="SCANNING..."; document.getElementById('marketStatus').innerText="RUNNING"; }
+// --- COMPLETE AUTO SCAN LOGIC ---
+let scanInterval = null;
+
+function startAutoScan() {
+    // 1. UI Updates
+    isScanning = true;
+    document.getElementById('btnScan').innerText = "SCANNING...";
+    document.getElementById('marketStatus').innerText = "RUNNING";
+    
+    // আগের কোনো স্ক্যান চালু থাকলে বন্ধ করা
+    if(scanInterval) clearInterval(scanInterval);
+
+    // 2. Loop Start (Every 3 Seconds)
+    scanInterval = setInterval(async () => {
+        if(!isScanning) return;
+
+        try {
+            // A. Get Live Candles
+            // ড্রপডাউন থেকে পেয়ার চেক করে API এর জন্য সিম্বল ঠিক করা
+            const pairVal = document.getElementById('activePair').value;
+            let symbol = 'EUR';
+            if(pairVal.includes('BTC')) symbol = 'BTC';
+            else if(pairVal.includes('ETH')) symbol = 'ETH';
+            else if(pairVal.includes('XAU')) symbol = 'XAU'; // Gold logic if added
+            
+            const res = await fetch(`https://min-api.cryptocompare.com/data/v2/histominute?fsym=${symbol}&tsym=USD&limit=10`);
+            const d = await res.json();
+            const candles = d.Data.Data; 
+            
+            // B. Create Fingerprint of Current Market (Last 5 candles)
+            const currentFP = generateFingerprint(candles.slice(candles.length-5));
+            
+            // C. Compare with Memory (Patterns array contains School + Manual + History)
+            let upVotes = 0, downVotes = 0;
+            
+            patterns.forEach(p => {
+                // Compare logic (85% Match)
+                if(compareFP(currentFP, p.fpData) > 0.85) {
+                    if(p.signal === 'UP') upVotes++; 
+                    else if(p.signal === 'DOWN') downVotes++;
+                }
+            });
+            
+            // D. Make Decision
+            let finalSig = "NEUTRAL";
+            let color = "#fff";
+            let desc = "SCANNING...";
+            
+            if(upVotes > downVotes) { 
+                finalSig = "UP"; 
+                color = "#0f0"; 
+                desc = "STRONG BUY PATTERN";
+            }
+            else if(downVotes > upVotes) { 
+                finalSig = "DOWN"; 
+                color = "#f00"; 
+                desc = "STRONG SELL PATTERN";
+            }
+            
+            // E. Update Admin Panel UI
+            const displaySig = finalSig === "NEUTRAL" ? "---" : (finalSig === "UP" ? "CALL (UP)" : "PUT (DOWN)");
+            // liveSignal আইডি আপনার HTML এ থাকতে হবে, যদি না থাকে তবে lastSig ব্যবহার করুন
+            const sigEl = document.getElementById('liveSignal') || document.getElementById('lastSig');
+            if(sigEl) {
+                sigEl.innerText = displaySig;
+                sigEl.style.color = color;
+            }
+            
+            // Update Progress Bar
+            const total = upVotes + downVotes;
+            const pct = total === 0 ? 0 : (upVotes / total) * 100;
+            if(document.getElementById('scanBar')) document.getElementById('scanBar').style.width = pct + "%";
+            if(document.getElementById('matchPct')) document.getElementById('matchPct').innerText = Math.round(pct) + "%";
+
+            // ======================================================
+            // F. SEND SIGNAL TO USER APP (FIREBASE)
+            // ======================================================
+            if(finalSig !== "NEUTRAL") {
+                db.collection('bot').doc('live_signal').set({
+                    signal: finalSig,
+                    desc: desc,
+                    timestamp: Date.now()
+                });
+            }
+
+        } catch(e) {
+            console.log("Scan Error: " + e.message);
+        }
+        
+    }, 3000); // প্রতি ৩ সেকেন্ডে স্ক্যান করবে
+}
+
+// Stop Function
+function stopAll() { 
+    isScanning = false; 
+    clearInterval(scanInterval); 
+    document.getElementById('marketStatus').innerText = "STOPPED";
+    document.getElementById('btnScan').innerText = "START";
+    if(document.getElementById('scanBar')) document.getElementById('scanBar').style.width = "0%";
+}
+
+// --- HELPER FUNCTIONS (Need to be present in script) ---
+
+/* --- HELPER FUNCTIONS (Replace Old Ones) --- */
+
+// ১. এটি আগেরটার বদলে বসান (Updated Logic)
+function generateFingerprint(candles) {
+    let min = Infinity, max = -Infinity;
+    // ক্যান্ডেলের হাই এবং লো বের করা হচ্ছে
+    candles.forEach(c => { 
+        if(c.low < min) min = c.low; 
+        if(c.high > max) max = c.high; 
+    });
+    
+    const range = max - min;
+    
+    // সেফটি চেক: যদি রেঞ্জ ০ হয়
+    if(range === 0) return candles.map(() => 0.5);
+    
+    // ডাটা নরমালাইজ করা (০ থেকে ১ এর মধ্যে)
+    return candles.map(c => (c.close - min) / range);
+}
+
+// ২. এটি নতুন করে যোগ হবে (Compare Logic)
+function compareFP(fp1, fp2) {
+    if(!fp2 || fp1.length !== fp2.length) return 0;
+    
+    let diff = 0;
+    for(let i=0; i<fp1.length; i++) {
+        diff += Math.abs(fp1[i] - fp2[i]);
+    }
+    
+    // মিল বের করা (1 মানে ১০০% মিল)
+    return 1 - (diff / fp1.length);
+}
+
+// Stop Function (নাম যদি stopAll বা stopScanning হয়, সেটা চেক করে নিবেন)
+function stopAll() { 
+    isScanning = false; 
+    clearInterval(scanInterval); 
+    document.getElementById('scanStatus').innerText = "STOPPED";
+    document.getElementById('btnScan').innerText = "START";
+    document.getElementById('scanBar').style.width = "0%";
+}
 function stopAll(){ isScanning=false; isLearning=false; document.getElementById('btnScan').innerText="START"; document.getElementById('marketStatus').innerText="STOPPED"; }
 function toggleAutoLearn(){ isLearning=!isLearning; document.getElementById('btnLearn').innerHTML = isLearning ? "🧠 LEARN: ON" : "🧠 LEARN: OFF"; document.getElementById('btnLearn').classList.toggle('active'); }
 
@@ -854,7 +1101,8 @@ async function sendChatMessage() {
     
     // শেষ হলে স্ক্রল নিচে নামিয়ে দেবে
     box.scrollTop = box.scrollHeight;
-}
+    }
+    
 function saveAIKeys() { db.collection('bot').doc('api_keys').set({ deepseek: document.getElementById('dsKey').value, deepseekEnabled: document.getElementById('dsToggle').checked, gemini: document.getElementById('gemKey').value, geminiEnabled: document.getElementById('gemToggle').checked, gpt: document.getElementById('gptKey').value, gptEnabled: document.getElementById('gptToggle').checked }, {merge:true}).then(()=>alert("Saved!")); }
 
 // --- UTILS ---
@@ -866,6 +1114,3 @@ function saveSet(){ db.collection('bot').doc('settings').set({message:document.g
 </script>
 </body>
 </html>
-
-
-
